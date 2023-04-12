@@ -1,0 +1,3 @@
+Leave(Helena)
+1
+Seated(x) & Stocked(y) => Order(x,y)
