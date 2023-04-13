@@ -154,11 +154,20 @@ class Sentence:
             self.negate()
 
         cnf_check, suggestion = self.is_in_cnf()
-        if not cnf_check and suggestion[0] == "DISTRIBUTE":
-            for p in self.predicate_list: 
-                if isinstance(p, PredicateList) and p.operator == '&' and self.predicate_list.operator == '|':
-                    new_predicate_list = p
-                    new_predicate_list.operator = '|'
+        
+        if not cnf_check and suggestion == "DISTRIBUTE" and self.predicate_list.operator == '|':
+            new_pl_lists = []
+            for i in range(0, len(self.predicate_list) - 1):
+                p1 = self.predicate_list.predicates[0]
+                p2 = self.predicate_list.predicates[i+1]
+                if isinstance(p1, PredicateList) and isinstance(p2, Predicate):
+                    for ip in p1.predicates:
+                        new_predicate_list = PredicateList([ip, p2], '|')
+                        new_pl_lists.append(new_predicate_list)
+
+            new_pl = PredicateList(new_pl_lists, '&')
+            self.predicate_list = new_pl
+
 
     def is_in_cnf(self):
         p_names = list(flatten(self.predicate_list.get_predicate_name()))
@@ -309,7 +318,7 @@ for sentence in sentences:
     cnf, suggestions = s.is_in_cnf()
     if not cnf:
         print("Sentence is not in CNF")
-        # s.convert_to_cnf(suggestions)
+        s.convert_to_cnf(suggestions)
     else:
         print("Sentence is in CNF")
 
