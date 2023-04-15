@@ -18,7 +18,7 @@ class Predicate:
         else:
             self.sign = "P"
         self.name = term_string.split("(")[0]
-        self.name.replace("~", "")
+        self.name = self.name.replace("~", "")
         # This returns '(x, y, z)'; So remove the bracks and get args seperately
         self.arguments = (
             re.findall(r"\(.*?\)", term_string)[0]
@@ -27,19 +27,29 @@ class Predicate:
             .split(",")
         )
         self.term_string = term_string.strip()
-
         self.ground_truth = ground_truth
+
+    def is_variable():
+        pass
 
     def negate(self):
         self.sign = reverse_sign(self.sign)
 
     def __str__(self):
-        # desc_string = "Name: " + str(self.name) + "; Arguments: " + str(self.arguments) + "; Sign: " + str(self.sign)
         if self.sign == "N":
             sign_string = "~"
         elif self.sign == "P":
             sign_string = ""
-        return sign_string + self.term_string
+
+        s = sign_string + self.name + "("
+
+        for arg in self.arguments:
+            s = s + arg + ", "
+
+        s = s.rstrip(", ")
+        s = s + ")"
+
+        return s
         # return desc_string
 
     def get_predicate_name(self):
@@ -70,6 +80,21 @@ class PredicateList:
         self.predicates = predicates
         self.operator = operator
         self.sign = sign
+
+    def apply_substitutions(self, substitutions):
+        for p in self.predicates:
+            if isinstance(p, Predicate):
+                for arg_index in range(0, len(p.arguments)):
+                    for sub in substitutions.keys():
+                        # print("arg_index")
+                        # print(arg_index)
+                        # print("sub")
+                        # print(sub)
+                        if p.arguments[arg_index] == sub:
+                            p.arguments[arg_index] = substitutions[sub]
+                            print("Applied subs")
+            else:
+                p.apply_substitutions(substitutions)
 
     def get_predicate_name(self):
         predicate_names = []
@@ -145,35 +170,45 @@ class Sentence:
     implication = None
     predicate_names = []
 
-    def __init__(self, sentence_string):
-        self.predicate_list = self.get_predicate_list(sentence_string)
-        self.sentence_string = sentence_string
+    def __init__(self, sentence_string, predicate_list=None):
+        if predicate_list is None:
+            self.predicate_list = self.get_predicate_list(sentence_string)
+            self.sentence_string = sentence_string
+        else:
+            self.predicate_list = predicate_list
+            self.sentence_string = sentence_string
+
+    def apply_substitutions(self, substitutions):
+        self.predicate_list.apply_substitutions(substitutions)
 
     def convert_to_cnf(self, suggestions=None):
         if suggestions is not None and suggestions[0] == "TAKE_NEGATION_INWARD":
             self.negate()
 
         cnf_check, suggestion = self.is_in_cnf()
-        
-        if not cnf_check and suggestion == "DISTRIBUTE" and self.predicate_list.operator == '|':
+
+        if (
+            not cnf_check
+            and suggestion == "DISTRIBUTE"
+            and self.predicate_list.operator == "|"
+        ):
             new_pl_lists = []
             for i in range(0, len(self.predicate_list) - 1):
                 p1 = self.predicate_list.predicates[0]
-                p2 = self.predicate_list.predicates[i+1]
+                p2 = self.predicate_list.predicates[i + 1]
                 if isinstance(p1, PredicateList) and isinstance(p2, Predicate):
                     for ip in p1.predicates:
-                        new_predicate_list = PredicateList([ip, p2], '|')
+                        new_predicate_list = PredicateList([ip, p2], "|")
                         new_pl_lists.append(new_predicate_list)
 
-            new_pl = PredicateList(new_pl_lists, '&')
+            new_pl = PredicateList(new_pl_lists, "&")
             self.predicate_list = new_pl
-
 
     def is_in_cnf(self):
         p_names = list(flatten(self.predicate_list.get_predicate_name()))
         print("Checking for")
         print(self.predicate_list.get_predicate_name())
-        
+
         suggestions = []
         if len(p_names) == 1:
             return True, []
@@ -185,25 +220,23 @@ class Sentence:
         ):
             return True, []
 
-        if self.predicate_list.sign == 'N':
+        if self.predicate_list.sign == "N":
             return (False, "TAKE_NEGATION_INWARD")
 
         sentence_string = str(self)
-        if (len(p_names) > 2
-            and '&' not in sentence_string):
+        if len(p_names) > 2 and "&" not in sentence_string:
             return True, []
 
         for p in self.predicate_list.predicates:
-            if isinstance(p, Predicate) and self.predicate_list.operator == '&':
+            if isinstance(p, Predicate) and self.predicate_list.operator == "&":
                 return True, []
             if isinstance(p, PredicateList):
-                if p.operator == '|':
+                if p.operator == "|":
                     return True, []
                 else:
                     return (False, "DISTRIBUTE")
 
         return False, []
-
 
     def negate(self):
         self.predicate_list.negate()
@@ -279,8 +312,20 @@ class Sentence:
         return str(self.predicate_list)
 
 
+def find_subsitutions(query_predicate, matched_predicate):
+    variables = matched_predicate.arguments
+    substitution = query_predicate.arguments
+    substitutions = {}
+
+    for i, v in enumerate(variables):
+        substitutions[v] = substitution[i]
+
+    return substitutions
+
+
 def apply_resolution(kb, query):
-    query_predicate_name = query.predicate_list.predicates[0].name
+    query_predicate = query.predicate_list.predicates[0]
+    query_predicate_name = query_predicate.name
     # print("query: " + str(query_predicate_name))
 
     for sentence in kb:
@@ -289,12 +334,22 @@ def apply_resolution(kb, query):
             query_predicate_name
         )
         if matched_predicate is not None:
-            print("Found a match")
+            # Predicate name matched, find substitutions
+            print("query")
+            print(query_predicate)
+            print("Found predicate")
             print(matched_predicate)
-            return
+            print("substitutions: ")
+            substitutions = find_subsitutions(query_predicate, matched_predicate)
+            print(substitutions)
+
+            print("Applying above substitution to sentence: ")
+            sentence.apply_substitutions(substitutions)
+            print("After applying substitutions: ")
+            print(sentence)
 
 
-file = open("some_input.txt", "r")
+file = open("cat_input.txt", "r")
 file_lines = file.readlines()
 query_string = file_lines[0].strip()
 number_of_sentences = int(file_lines[1].strip())
@@ -319,16 +374,37 @@ for sentence in sentences:
     if not cnf:
         print("Sentence is not in CNF")
         s.convert_to_cnf(suggestions)
+        print("CNF: ")
+        print(s)
+        broken_sentences = []
+        if s.predicate_list.operator == "&":
+            for p in s.predicate_list.predicates:
+                print("Individual predicates: ")
+                print(p)
+                sentence_string = (
+                    str(p).replace("}", "").replace("{", "").replace(" ", "")
+                )
+                if isinstance(p, Predicate):
+                    predicate_list = PredicateList([p])
+                else:
+                    predicate_list = p
+
+                new_sentence = Sentence(
+                    sentence_string=sentence_string, predicate_list=predicate_list
+                )
+                print("New sentence: ")
+                print(new_sentence)
+                print("Inserting to KB")
+                knowledge_base.append(new_sentence)
     else:
         print("Sentence is in CNF")
+        knowledge_base.append(s)
 
-    knowledge_base.append(s)
 
+main_knowledge_base = copy.deepcopy(knowledge_base)
+query_sentence = Sentence(query_string)
 
-# main_knowledge_base = copy.deepcopy(knowledge_base)
-# query_sentence = Sentence(query_string)
+query_sentence.negate()
+knowledge_base.append(query_sentence)
 
-# query_sentence.negate()
-# knowledge_base.append(query_sentence)
-
-# apply_resolution(main_knowledge_base, query_sentence)
+apply_resolution(main_knowledge_base, query_sentence)
