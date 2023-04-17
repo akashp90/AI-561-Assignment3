@@ -2,6 +2,7 @@ import re
 from collections.abc import Iterable
 import copy
 
+# TODO: Handle whitespaces??
 
 def flatten(xs):
     for x in xs:
@@ -55,6 +56,13 @@ class Predicate:
     def get_predicate_name(self):
         return self.name.strip()
 
+    def apply_substitutions(self, substitutions):
+        for key, new_value in substitutions.items():
+            for arg_index in range(0, len(self.arguments)):
+                if self.arguments[arg_index] == key:
+                    self.arguments[arg_index] = new_value
+
+
 
 class PredicateListIterator:
     """Iterator class"""
@@ -103,22 +111,25 @@ class PredicateList:
 
         return predicate_names
 
-    def get_matching_predicate_by_name(self, predicate_name):
+    def get_matching_predicate_by_name(self, predicate_name, sign=None):
         # print("Self")
         # print(self)
         # print("Self predicates")
         # print(str(self.predicates))
+        matched_predicates = []
         for predicate in self.predicates:
             # print("Checking for: " + str(predicate.get_predicate_name()))
             if isinstance(predicate, Predicate):
-                # print("Checking for one:" + str(predicate.get_predicate_name()))
-                if predicate.get_predicate_name() == predicate_name:
-                    return predicate
+                # print("Checking for one:" + str(predicate))
+                # print("Sign: " + str(sign))
+                if predicate.get_predicate_name() == predicate_name and predicate.sign != sign:
+                    # print("Matched!")
+                    matched_predicates.append(predicate)
             else:
                 # print("Checking for list: " + str(predicate.get_predicate_name()))
-                predicate.get_matching_predicate_by_name(predicate_name)
+                matched_predicates += predicate.get_matching_predicate_by_name(predicate_name, sign)
 
-        return None
+        return matched_predicates
 
     def negate(self):
         for p in self.predicates:
@@ -179,6 +190,10 @@ class Sentence:
             self.sentence_string = sentence_string
 
     def apply_substitutions(self, substitutions):
+        print("apply_substitutions")
+        print(substitutions)
+        print("to")
+        print(self)
         self.predicate_list.apply_substitutions(substitutions)
 
     def convert_to_cnf(self, suggestions=None):
@@ -206,8 +221,8 @@ class Sentence:
 
     def is_in_cnf(self):
         p_names = list(flatten(self.predicate_list.get_predicate_name()))
-        print("Checking for")
-        print(self.predicate_list.get_predicate_name())
+        # print("Checking for")
+        # print(self.predicate_list.get_predicate_name())
 
         suggestions = []
         if len(p_names) == 1:
@@ -314,42 +329,170 @@ class Sentence:
 
 def find_subsitutions(query_predicate, matched_predicate):
     variables = matched_predicate.arguments
+    variables = [var.strip() for var in variables]
     substitution = query_predicate.arguments
+    substitution = [sub.strip() for sub in substitution]
     substitutions = {}
 
+    print("variables")
+    print(variables)
+    print("substitution")
+    print(substitution)
+
+    if variables == substitution:
+        print("variables equal to substitution, return the same")
+        for i, v in enumerate(variables):
+            substitutions[v] = substitution[i]
+        return substitutions        
+
+
     for i, v in enumerate(variables):
-        substitutions[v] = substitution[i]
+        if len(v) == 1 and v.islower():
+            substitutions[v] = substitution[i]
+        elif len(substitution[i]) == 1 and substitution[i].islower():
+            substitutions[substitution[i]] = v
 
     return substitutions
 
 
-def apply_resolution(kb, query):
-    query_predicate = query.predicate_list.predicates[0]
+def apply_unit_resolution(predicate_list, predicate_list_2, predicate_to_remove):
+    # 1. Combine the two sentences
+    # 2. Remove the negated predicates
+
+    print("Apply unit resolution to ")
+    print(predicate_list)
+    print("And")
+    print(predicate_list_2)
+    new_sentence_pl = []
+    predicate_to_remove.arguments = [var.strip() for var in predicate_to_remove.arguments]
+
+    for p in predicate_list.predicates:
+        if isinstance(p, Predicate):
+            p.arguments = [var.strip() for var in p.arguments]
+            predicate_string = str(p).strip().replace("~", "")
+            remove_string = str(predicate_to_remove).strip().replace("~", "")
+            # print("predicate_string")
+            # print(predicate_string)
+            # print("remove_string")
+            # print(remove_string)
+            if predicate_string == remove_string and p.sign != predicate_to_remove.sign:
+                # print("Equal")
+                continue
+            else:
+                # print("Appending")
+                # print(p)
+                new_sentence_pl.append(p)
+        else:
+            for ip in p.predicates:
+                if isinstance(ip, Predicate):
+                    if ip.get_predicate_name() == predicate_to_remove.name:
+                        print("Inner Predicates")
+                    else:
+                        new_sentence_pl.append(ip)
+                else:
+                    print("Should handle this also fml")
+
+
+
+
+    for p in predicate_list_2.predicates:
+        if isinstance(p, Predicate):
+            p.arguments = [var.strip() for var in p.arguments]
+            predicate_string = str(p).strip().replace("~", "")
+            remove_string = str(predicate_to_remove).strip().replace("~", "")
+            # print("predicate_string")
+            # print(predicate_string)
+            # print("remove_string")
+            # print(remove_string)
+            if predicate_string == remove_string and p.sign == predicate_to_remove.sign:
+                # print("Equal")
+                continue
+            else:
+                # print("Appending")
+                # print(p)
+                new_sentence_pl.append(p)
+        else:
+            for ip in p.predicates:
+                if isinstance(ip, Predicate):
+                    if ip.get_predicate_name() == predicate_to_remove.name:
+                        print("Inner Predicates")
+                    else:
+                        new_sentence_pl.append(ip)
+                else:
+                    print("Should handle this also fml")
+
+
+
+    # print("New sentence: ")
+    # print(str(new_sentence_pl))
+    if len(new_sentence_pl) == 0:
+        print("New sentence length is 0")
+        return False
+    
+    new_pl = PredicateList(new_sentence_pl, operator='|')
+    sentence_string = str(new_pl).replace("}", "").replace("{", "").replace(" ", "")
+    new_sentence = Sentence(sentence_string, new_pl)
+    print("New sentence: ")
+    print(new_sentence)
+    return new_sentence
+
+
+
+def apply_resolution(kb, query_sentence, query_predicate):    
     query_predicate_name = query_predicate.name
-    # print("query: " + str(query_predicate_name))
+    print("***************")
+    print("Query: " + str(query_predicate))
 
     for sentence in kb:
-        # print("Searching in " + str(sentence))
-        matched_predicate = sentence.predicate_list.get_matching_predicate_by_name(
-            query_predicate_name
+        # print("Press any key")
+        print("Searching in " + str(sentence))
+        # inp = input()
+        matched_predicates = sentence.predicate_list.get_matching_predicate_by_name(
+            query_predicate_name, query_predicate.sign
         )
-        if matched_predicate is not None:
+        if len(matched_predicates) == 0:
+            # print("No matched_predicates in this sentence")
+            continue
+
+        for matched_predicate in matched_predicates:
             # Predicate name matched, find substitutions
-            print("query")
-            print(query_predicate)
+            # print("query")
+            # print(query_predicate)
             print("Found predicate")
             print(matched_predicate)
-            print("substitutions: ")
-            substitutions = find_subsitutions(query_predicate, matched_predicate)
-            print(substitutions)
+            # print("substitutions: ")
 
-            print("Applying above substitution to sentence: ")
+            substitutions = find_subsitutions(query_predicate, matched_predicate)
+            print("substitutions")
+            print(substitutions)
+            if len(substitutions) == 0:
+                print("No substitutions found; Checking for next")
+                continue
+
+            # print(substitutions)
+
+            # print("Applying above substitution to sentence: ")
             sentence.apply_substitutions(substitutions)
+            query_sentence.apply_substitutions(substitutions)
             print("After applying substitutions: ")
             print(sentence)
 
+            new_sentence = apply_unit_resolution(sentence.predicate_list, query_sentence.predicate_list, query_predicate)
+            if not new_sentence:
+                print("Reached contractdiction; Exiting resolution")
+                return True
 
-file = open("cat_input.txt", "r")
+            kb.append(new_sentence)
+
+            # return
+            for p in new_sentence.predicate_list.predicates:
+                if isinstance(p, Predicate):
+                    x = apply_resolution(kb, new_sentence, p)
+                    if x:
+                        return True
+
+
+file = open("input.txt", "r")
 file_lines = file.readlines()
 query_string = file_lines[0].strip()
 number_of_sentences = int(file_lines[1].strip())
@@ -362,25 +505,26 @@ for i in range(2, 2 + number_of_sentences):
 
 knowledge_base = []
 for sentence in sentences:
+    sentence = sentence.replace(" ", "")
     s = Sentence(sentence)
-    print("For sentence: " + sentence)
-    print(s)
+    # print("For sentence: " + sentence)
+    # print(s)
     if "=>" in sentence:
-        print("Removing implication")
+        # print("Removing implication")
         s.remove_implication_sign()
-        print("After removing:")
-        print(s)
+        # print("After removing:")
+        # print(s)
     cnf, suggestions = s.is_in_cnf()
     if not cnf:
-        print("Sentence is not in CNF")
+        # print("Sentence is not in CNF")
         s.convert_to_cnf(suggestions)
-        print("CNF: ")
-        print(s)
+        # print("CNF: ")
+        # print(s)
         broken_sentences = []
         if s.predicate_list.operator == "&":
             for p in s.predicate_list.predicates:
-                print("Individual predicates: ")
-                print(p)
+                # print("Individual predicates: ")
+                # print(p)
                 sentence_string = (
                     str(p).replace("}", "").replace("{", "").replace(" ", "")
                 )
@@ -392,12 +536,12 @@ for sentence in sentences:
                 new_sentence = Sentence(
                     sentence_string=sentence_string, predicate_list=predicate_list
                 )
-                print("New sentence: ")
-                print(new_sentence)
-                print("Inserting to KB")
+                # print("New sentence: ")
+                # print(new_sentence)
+                # print("Inserting to KB")
                 knowledge_base.append(new_sentence)
     else:
-        print("Sentence is in CNF")
+        # print("Sentence is in CNF")
         knowledge_base.append(s)
 
 
@@ -407,4 +551,10 @@ query_sentence = Sentence(query_string)
 query_sentence.negate()
 knowledge_base.append(query_sentence)
 
-apply_resolution(main_knowledge_base, query_sentence)
+print("KB:")
+for s in knowledge_base:
+    print(s)
+
+result = apply_resolution(main_knowledge_base, query_sentence, query_sentence.predicate_list.predicates[0])
+print("REsult: ")
+print(result)
